@@ -526,6 +526,13 @@ const TERMS=["الحارة منصة لعرض المحلات. البيع بيتم
   "تقدر تطلب قفل محلك ومسح بياناتك في أي وقت."];
 const SHIP={local:"منطقته بس",gov:"المحافظة كلها",egypt:"كل مصر"};
 const DAYS=["نفس اليوم","يوم واحد","٢-٣ أيام","٣-٥ أيام","أسبوع"];
+const GC_CODE="alhara-souq"; // كود GoatCounter لعدّ الزوار (بيشتغل على الموقع المنشور بس، مش جوه Claude)
+const GC={q:[],seen:new Set()};
+function track(path,event){if(!GC_CODE||window.claude)return;const c={path:"/"+path,title:path,event:!!event};
+  if(window.goatcounter&&window.goatcounter.count)try{window.goatcounter.count(c)}catch{}else GC.q.push(c)}
+function trackOnce(k){if(GC.seen.has(k))return;GC.seen.add(k);track(k,true)}
+if(GC_CODE&&!window.claude){window.goatcounter={no_onload:true};const sc=document.createElement("script");sc.async=true;sc.src="https://gc.zgo.at/count.js";sc.dataset.goatcounter=`https://${GC_CODE}.goatcounter.com/count`;
+  sc.onload=()=>{const q=GC.q.splice(0);q.forEach(c=>{try{window.goatcounter.count(c)}catch{}})};document.head.appendChild(sc)}
 const FEEDBACK_WA="201026052869"; // رقم واتساب لاستقبال الآراء بصيغة دولية، مثلاً "201012345678". سيبه فاضي لإخفاء الزرار.
 const ARTIFACT_URL="https://claude.ai/artifact/D8WeNsDfRsPLjqhQv74SvD";
 const shopHash=id=>"shop-"+(/^[A-Za-z0-9-]+$/.test(id)?id:"x"+[...new TextEncoder().encode(id)].map(b=>b.toString(16).padStart(2,"0")).join(""));
@@ -676,7 +683,9 @@ function viewStreet(){
   startSky();tickCount();if(S.q)renderResults();
 }
 
+let srchT=0;
 function renderResults(){
+  clearTimeout(srchT);if((S.q||"").trim().length>=2)srchT=setTimeout(()=>trackOnce("search-used"),1500);
   const box=document.getElementById("results"),sw=document.getElementById("streetwrap");if(!box)return;
   const q=norm(S.q).trim();box.hidden=!q;if(sw)sw.hidden=!!q;if(!q){box.innerHTML="";return}
   const words=q.split(/\s+/).filter(Boolean);const hit=t=>words.every(w=>norm(t).includes(w));
@@ -780,6 +789,7 @@ function openProduct(s,i){
   document.body.appendChild(el);el.querySelector(".xclose")?.focus();
 }
 function openOrder(s){
+  track("order-sheet",true);
   let m=s.pay[0]||"";const buyer=LS.get("buyer",{name:"",addr:""});let err="";
   const el=document.createElement("div");el.className="sheet";el.setAttribute("role","dialog");el.setAttribute("aria-modal","true");
   const text=()=>orderText(s,buyer,m);
@@ -804,6 +814,7 @@ function openOrder(s){
     if(e.target.closest("[data-copy]"))copyText(text(),el.querySelector("#otext"));
     if(e.target.closest("#wa-go")){
       if(buyer.name.length<2||buyer.addr.length<5){e.preventDefault();err="اكتب اسمك وعنوانك عشان البيّاع يعرف يوصّلك.";draw();(buyer.name.length<2?el.querySelector("#b-name"):el.querySelector("#b-addr"))?.focus();return}
+      track("order-whatsapp",true);
       setTimeout(()=>{delete S.cart[s.id];LS.set("cart",S.cart);el.remove();if(S.lastView==="shop"&&S.curShop===s.id){const y=scrollY;viewShop(s.id);window.scrollTo({top:y})}toast("الطلب اتفتح في واتساب. ابعت الرسالة للبيّاع ✓")},300);
     }
   });
@@ -962,7 +973,7 @@ async function wizNext(){
     plan:w.edit?(prev?.plan||"shop"):w.plan,
     rent:w.edit?(prev?.rent||null):{plan:w.plan,months:w.plan==="kiosk"?0:w.months,method:w.plan==="kiosk"?"none":(w.rmethod||"none"),ref:w.plan==="kiosk"?"":w.rref.slice(0,40),at:now},
     agreedAt:w.edit?(prev?.agreedAt||now):now,createdAt:prev?.created||now,updatedAt:now};
-  try{await S.db.doc("shops/"+S.uid).set(doc);
+  try{await S.db.doc("shops/"+S.uid).set(doc);if(!w.edit)track("seller-finished",true);
     if(S.local&&!w.edit){const pl=doc.rent?.plan||"shop";await S.db.doc("approvals/"+S.uid).set({status:"active",plan:pl,paidUntil:pl==="kiosk"?0:now+(doc.rent?.months||1)*30*DAY,reason:"",rentConfirmedAt:now,reviewedAt:now})}
     const c=clean(doc,S.uid);S.real=[c,...S.real.filter(s=>s.id!==S.uid)];S.wizStep=nSteps();viewOpen();
   }catch(e){btn.disabled=false;btn.textContent=w.edit?"احفظ التعديلات":"ابعت طلب التسجيل 📨";
@@ -1213,6 +1224,7 @@ function route(){
   if(no.dataset.v===v)no.setAttribute("aria-current","page");
   document.getElementById("navAdmin").hidden=!asOwner();renderViewAs();
   if(v!==S.lastView)window.scrollTo({top:0});
+  if(v!==S.lastView){track(v==="shop"?"shop":v);if(v==="open"&&!myShop())trackOnce("seller-started")}
   S.lastView=v;
 }
 function rerender(){ // refresh live data without losing wizard input
@@ -1340,7 +1352,7 @@ function goLocal(timer){
   const top=document.querySelector(".top");if(top&&!document.getElementById("localnote")){const n=document.createElement("div");n.id="localnote";n.className="localnote";n.textContent="🧪 نسخة تجريبية: جرّب تشتري أو تفتح محل براحتك. اللي بتعمله بيتحفظ على جهازك بس.";top.appendChild(n)}
   subscribe(S.db,timer);
 }
-if(FEEDBACK_WA){const a=document.createElement("a");a.className="fb";a.target="_blank";a.rel="noopener";a.textContent="💬 قولّنا رأيك";
+if(FEEDBACK_WA){const a=document.createElement("a");a.addEventListener("click",()=>track("feedback-click",true));a.className="fb";a.target="_blank";a.rel="noopener";a.textContent="💬 قولّنا رأيك";
   a.href=`https://wa.me/${FEEDBACK_WA}?text=${encodeURIComponent("رأيي في «الحارة» 🏮\nأنا: (بيّاع / مشتري)\nأكتر حاجة عجبتني:\nأكتر حاجة ضايقتني:\nهستخدمه؟ (آه / لأ / يمكن):\n"+"لو بيّاع، تدفع إيجار كام في الشهر؟:")}`;document.body.appendChild(a)}
 route();
 (async()=>{
